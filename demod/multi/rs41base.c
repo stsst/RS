@@ -45,6 +45,7 @@ typedef struct {
     i8_t aut;
     i8_t jsn;  // JSON output (auto_rx)
     i8_t slt;  // silent
+    i8_t dmp;  // dump calibration data/raw telemetry
 } option_t;
 
 typedef struct {
@@ -101,6 +102,7 @@ typedef struct {
     char xdata[XDATA_LEN+16]; // xdata: aux_str1#aux_str2 ...
     option_t option;
     RS_t RS;
+    FILE* rawfile;
 } gpx_t;
 
 
@@ -254,6 +256,77 @@ static int check_CRC(gpx_t *gpx, ui32_t pos, ui32_t pck) {
 }
 
 
+
+void load_cached_subframes(gpx_t* gpx)
+{
+    char path[256];
+    FILE* f;
+    int i, n;
+    
+    snprintf(path, 256, "%s/%s.bin", "subframes", gpx->id);
+    f = fopen(path, "rb");
+    if(f)
+    {
+        ui8_t has_cal_frame[sizeof(gpx->calfrchk)] = {0};
+        ui8_t v;
+        for(i = 0; i < sizeof(gpx->calfrchk); ++i)
+        {
+            if((i & 7) == 0) fread(&v, 1, 1, f);
+            if(v & 1) has_cal_frame[i] = 1;
+            v >>= 1;
+        }
+        n = 0;
+        for(i = 0; i < sizeof(gpx->calfrchk); ++i)
+        {
+            if(has_cal_frame[i])
+            {
+                fread(&gpx->calibytes[i*16], 1, 16, f);
+                gpx->calfrchk[i] = 1;
+                ++n;
+            }
+        }
+        fclose(f);
+        fprintf(stderr, "loaded %d cached subframes\n", n);
+    }
+    
+    // TODO: somehow update data processed by get_Calconf
+}
+
+void dump_cached_subframes(gpx_t* gpx)
+{
+    char path[256];
+    FILE* f;
+    int i;
+    ui8_t v = 0;
+    
+    snprintf(path, 256, "%s/%s.bin", "subframes", gpx->id);
+    f = fopen(path, "wb");
+    if(f)
+    {
+        for(i = 0; i < sizeof(gpx->calfrchk); ++i)
+        {
+            v |= gpx->calfrchk[i] << (i & 7);
+            if((i & 7) == 7)
+            {
+                fwrite(&v, 1, 1, f);
+                v = 0;
+            }
+        }
+        if(i & 7) fwrite(&v, 1, 1, f);
+        for(i = 0; i < sizeof(gpx->calfrchk); ++i)
+        {
+            if(gpx->calfrchk[i]) fwrite(&gpx->calibytes[i*16], 1, 16, f);
+        }
+        fclose(f);
+    }
+    else
+    {
+        fprintf(stderr, "failed to open %s for writing\n", path);
+    }
+}
+
+
+
 /*
 GPS chip: ublox UBX-G6010-ST
 
@@ -379,6 +452,7 @@ static int get_SondeID(gpx_t *gpx, int crc, int ofs) {
     int i;
     unsigned byte;
     char sondeid_bytes[9];
+    char buffer[32];
 
     if (crc == 0) {
         for (i = 0; i < 8; i++) {
@@ -401,9 +475,16 @@ static int get_SondeID(gpx_t *gpx, int crc, int ofs) {
             // don't reset gpx->frame[] !
             gpx->T = -273.15;
             gpx->RH = -1.0;
+            gpx->P = -1.0;
             // new ID:
             memcpy(gpx->id, sondeid_bytes, 8);
             gpx->id[8] = '\0';
+            load_cached_subframes(gpx);
+            if(gpx->option.dmp) {
+                if(gpx->rawfile) fclose(gpx->rawfile);
+                sprintf(buffer, "raw/%s.raw", sondeid_bytes);
+                gpx->rawfile = fopen(buffer, "a");
+            }
         }
     }
 
@@ -431,6 +512,7 @@ static int get_FrameConf(gpx_t *gpx, int ofs) {
                 gpx->calibytes[calfr*16 + i] = gpx->frame[pos_CalData+ofs+1+i];
             }
             gpx->calfrchk[calfr] = 1;
+            if (gpx->option.dmp) dump_cached_subframes(gpx); // only call if got all subframes?
         }
     }
 
@@ -1439,31 +1521,34 @@ static void print_frame(gpx_t *gpx, int len, dsp_t *dsp) {
     }
 
 
-    if (gpx->option.raw) {
+    if (gpx->rawfile) {
         for (i = 0; i < len; i++) {
-            fprintf(stdout, "%02x", gpx->frame[i]);
+            fprintf(gpx->rawfile, "%02x", gpx->frame[i]);
         }
         if (gpx->option.ecc) {
-            if (ec >= 0) fprintf(stdout, " [OK]"); else fprintf(stdout, " [NO]");
+            if (ec >= 0) fprintf(gpx->rawfile, " [OK]"); else fprintf(gpx->rawfile, " [NO]");
             if (gpx->option.ecc /*== 2*/) {
-                if (ec > 0) fprintf(stdout, " (%d)", ec);
+                if (ec > 0) fprintf(gpx->rawfile, " (%d)", ec);
                 if (ec < 0) {
-                    if      (ec == -1)  fprintf(stdout, " (-+)");
-                    else if (ec == -2)  fprintf(stdout, " (+-)");
-                    else   /*ec == -3*/ fprintf(stdout, " (--)");
+                    if      (ec == -1)  fprintf(gpx->rawfile, " (-+)");
+                    else if (ec == -2)  fprintf(gpx->rawfile, " (+-)");
+                    else   /*ec == -3*/ fprintf(gpx->rawfile, " (--)");
                 }
             }
         }
-        fprintf(stdout, "\n");
+        fprintf(gpx->rawfile, "\n");
+        fflush(gpx->rawfile);
     }
-    else {
+    { //else {
         pthread_mutex_lock( dsp->thd.mutex );
         fprintf(stdout, "<%d> ", dsp->thd.tn);
         ret = print_position(gpx, ec);
         if (ret==0) fprintf(stdout, "\n");
         pthread_mutex_unlock( dsp->thd.mutex );
     }
+    
 }
+
 
 /* -------------------------------------------------------------------------- */
 
@@ -1512,6 +1597,7 @@ void *thd_rs41(void *targs) { // pcm_t *pcm, double xlt_fq
     gpx.option.ptu = 1;
     gpx.option.aut = 1;
     gpx.option.jsn = tharg->option_jsn;
+    gpx.option.dmp = tharg->option_dmp;
 
     gpx.option.ecc = 1;
 
@@ -1619,6 +1705,12 @@ void *thd_rs41(void *targs) { // pcm_t *pcm, double xlt_fq
             header_found = 0;
         }
     }
+    
+    if(gpx.rawfile) {
+        fclose(gpx.rawfile);
+        gpx.rawfile = 0;
+    }
+    
 
     free_buffers(&dsp);
 

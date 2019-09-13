@@ -152,6 +152,7 @@ typedef struct {
     pcm_t pcm;
     thd_t thd;
     int option_jsn;
+    int option_dmp;
 } thargs_t;
 
 
