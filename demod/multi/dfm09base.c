@@ -663,6 +663,8 @@ static int print_gpx(gpx_t *gpx) {
                 if (t > -270.0) printf(", \"temp\": %.1f", t);
             }
             
+            if (gpx->status[0] != 0.0) printf(", \"batt\": %f", gpx->status[0]);
+            
             if (sonde_subtype[0]) printf(", \"subtype\": \"%s\"", sonde_subtype);
             
             printf(", \"type\": \"DFM\" }\n");
