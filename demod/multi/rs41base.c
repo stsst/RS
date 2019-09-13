@@ -79,6 +79,7 @@ typedef struct {
     double lat; double lon; double alt;
     double vH; double vD; double vV;
     float T; float RH;
+    float P;
     ui32_t crc;
     ui8_t frame[FRAME_LEN];
     ui8_t calibytes[51*16];
@@ -90,6 +91,7 @@ typedef struct {
     float ptu_co2[3];   // { -243.911 , 0.187654 , 8.2e-06 }
     float ptu_calT2[3]; // calibration T2-Hum
     float ptu_calH[2];  // calibration Hum
+    float ptu_calP[25];
     ui32_t freq;    // freq/kHz
     float batt;     // battery voltage (V)
     ui16_t conf_fw; // firmware
@@ -202,6 +204,13 @@ static int i3(ui8_t *bytes) {  // 24bit signed int
 
 static ui32_t u2(ui8_t *bytes) {  // 16bit unsigned int
     return  bytes[0] | (bytes[1]<<8);
+}
+
+static int i2(ui8_t *bytes) { // 16bit signed int
+    //return (i16_t)u2(bytes);
+    int val = bytes[0] | (bytes[1]<<8);
+    if (val & 0x8000) val -= 0x10000;
+    return val;
 }
 
 /*
@@ -542,6 +551,25 @@ static int get_CalData(gpx_t *gpx) {
     memcpy(gpx->ptu_calT2+0, gpx->calibytes+305, 4);  // 0x13*0x10+ 1
     memcpy(gpx->ptu_calT2+1, gpx->calibytes+309, 4);  // 0x13*0x10+ 5
     memcpy(gpx->ptu_calT2+2, gpx->calibytes+313, 4);  // 0x13*0x10+ 9
+    
+    memcpy(gpx->ptu_calP+0, gpx->calibytes+606, 4); // 0x25*0x10+14
+    memcpy(gpx->ptu_calP+4, gpx->calibytes+610, 4); // ..
+    memcpy(gpx->ptu_calP+8, gpx->calibytes+614, 4);
+    memcpy(gpx->ptu_calP+12, gpx->calibytes+618, 4);
+    memcpy(gpx->ptu_calP+16, gpx->calibytes+622, 4);
+    memcpy(gpx->ptu_calP+20, gpx->calibytes+626, 4);
+    memcpy(gpx->ptu_calP+24, gpx->calibytes+630, 4);
+    memcpy(gpx->ptu_calP+1, gpx->calibytes+634, 4);
+    memcpy(gpx->ptu_calP+5, gpx->calibytes+638, 4);
+    memcpy(gpx->ptu_calP+9, gpx->calibytes+642, 4);
+    memcpy(gpx->ptu_calP+13, gpx->calibytes+646, 4);
+    memcpy(gpx->ptu_calP+2, gpx->calibytes+650, 4);
+    memcpy(gpx->ptu_calP+6, gpx->calibytes+654, 4);
+    memcpy(gpx->ptu_calP+10, gpx->calibytes+658, 4);
+    memcpy(gpx->ptu_calP+14, gpx->calibytes+662, 4);
+    memcpy(gpx->ptu_calP+3, gpx->calibytes+666, 4);
+    memcpy(gpx->ptu_calP+7, gpx->calibytes+670, 4); // ..
+    memcpy(gpx->ptu_calP+11, gpx->calibytes+674, 4); // 0x2A*0x10+ 2
 
     return 0;
 }
@@ -609,15 +637,33 @@ static float get_RH(gpx_t *gpx, ui32_t f, ui32_t f1, ui32_t f2, float T) {
     return rh;
 }
 
+static float get_P(gpx_t *gpx, ui32_t f, ui32_t f1, ui32_t f2, int fx)
+{
+    float p = 0.0;
+    int i, j;
+    float a0, a1;
+    if(f1 == f2 || f1 == f) return 0.0;
+    a0 = gpx->ptu_calP[24] / ((float)(f - f1) / (float)(f2 - f1));
+    a1 = fx * 0.01;
+    for(i = 0; i < 6; i++) {
+        for(j = 0; j < 4; j++) {
+            p += powf(a0, i) * powf(a1, j) * gpx->ptu_calP[i*4+j];
+        }
+    }
+    return p;
+}
+
 static int get_PTU(gpx_t *gpx, int ofs, int pck) {
     int err=0, i;
     int bR, bc1, bT1,
             bc2, bT2;
     int bH;
+    int bP;
     ui32_t meas[12];
     float Tc = -273.15;
     float TH = -273.15;
     float RH = -1.0;
+    float P = 0.0;
 
     get_CalData(gpx);
 
@@ -638,6 +684,8 @@ static int get_PTU(gpx_t *gpx, int ofs, int pck) {
         bc2 = gpx->calfrchk[0x12] && gpx->calfrchk[0x13];
         bT2 = gpx->calfrchk[0x13];
         bH  = gpx->calfrchk[0x07];
+        bP = gpx->calfrchk[0x21] && gpx->calibytes[0x21F] == 'P' && gpx->calfrchk[0x25] && gpx->calfrchk[0x26] && gpx->calfrchk[0x27]
+             && gpx->calfrchk[0x28] && gpx->calfrchk[0x29] && gpx->calfrchk[0x2A];
 
         if (bR && bc1 && bT1) {
             Tc = get_Tc(gpx, meas[0], meas[1], meas[2]);
@@ -654,6 +702,10 @@ static int get_PTU(gpx_t *gpx, int ofs, int pck) {
         }
         gpx->RH = RH;
 
+        if (bP) {
+            P = get_P(gpx, meas[9], meas[10], meas[11], i2(gpx->frame+pos_PTU+ofs+2+38));
+        }
+        gpx->P = P;
 
         if (gpx->option.vbs == 4 && (gpx->crc & (crc_PTU | crc_GPS3))==0)
         {
@@ -1155,6 +1207,7 @@ static int prn_ptu(gpx_t *gpx) {
     fprintf(stdout, " ");
     if (gpx->T > -273.0) fprintf(stdout, " T=%.1fC ", gpx->T);
     if (gpx->RH > -0.5)  fprintf(stdout, " RH=%.0f%% ", gpx->RH);
+    if (gpx->P > 0.0)    fprintf(stdout, " P=%.02fhPa ", gpx->P);
     return 0;
 }
 
@@ -1411,6 +1464,11 @@ static int print_position(gpx_t *gpx, int ec) {
                         if (gpx->option.ptu && !err0 && gpx->RH > -0.5) {
                             fprintf(stdout, ", \"humidity\": %.1f",  gpx->RH );
                         }
+
+                        if (gpx->option.ptu && !err0 && gpx->P > 0.0) {
+                            fprintf(stdout, ", \"pressure\": %.2f",  gpx->P );
+                        }
+
                         if (gpx->aux) { // <=> gpx->xdata[0]!='\0'
                             fprintf(stdout, ", \"aux\": \"%s\"",  gpx->xdata );
                         }
