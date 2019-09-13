@@ -646,10 +646,11 @@ static int print_gpx(gpx_t *gpx) {
         {
             // JSON Buffer to store sonde ID
             char json_sonde_id[] = "DFMxx-xxxxxxxx\0\0";
+            char sonde_subtype[8] = {0};
             switch (gpx->sonde_typ & 0xF) {
                 case   0: sprintf(json_sonde_id, "DFMxx-xxxxxxxx"); break; //json_sonde_id[0] = '\0';
-                case   6: sprintf(json_sonde_id, "DFM06-%6X", gpx->SN6); break;
-                case 0xA: sprintf(json_sonde_id, "DFM09-%6u", gpx->SN); break;
+                case   6: sprintf(json_sonde_id, "DFM06-%6X", gpx->SN6); strcpy(sonde_subtype, "DFM06"); break;
+                case 0xA: sprintf(json_sonde_id, "DFM09-%6u", gpx->SN); strcpy(sonde_subtype, "DFM09"); break;
                 // 0x7: PS-15?, 0xC: DFM-17? (0xD: DFM-17?p)
                 default : sprintf(json_sonde_id, "DFMx%1X-%6u", gpx->sonde_typ & 0xF,gpx->SN);
             }
@@ -661,7 +662,10 @@ static int print_gpx(gpx_t *gpx) {
                 float t = get_Temp(gpx); // ecc-valid temperature?
                 if (t > -270.0) printf(", \"temp\": %.1f", t);
             }
-            printf(" }\n");
+            
+            if (sonde_subtype[0]) printf(", \"subtype\": \"%s\"", sonde_subtype);
+            
+            printf(", \"type\": \"DFM\" }\n");
             printf("\n");
         }
 

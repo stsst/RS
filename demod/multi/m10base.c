@@ -792,7 +792,7 @@ static int print_pos(gpx_t *gpx, int csOK) {
                     float t = get_Temp(gpx, 0);
                     if (t > -273.0) fprintf(stdout, ", \"temp\": %.1f", t);
                 }
-                fprintf(stdout, " }\n");
+                fprintf(stdout, ", \"type\": \"M10\" }\n");
                 fprintf(stdout, "\n");
             }
         }

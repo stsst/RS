@@ -1422,7 +1422,7 @@ static int print_position(gpx_t *gpx, int ec) {
                                 fprintf(stdout, ", \"encrypted\": false");
                             }
                         }
-                        fprintf(stdout, " }\n");
+                        fprintf(stdout, ", \"type\": \"RS41\" }\n");
                         fprintf(stdout, "\n");
                     }
                 }
