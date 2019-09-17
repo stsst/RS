@@ -140,10 +140,8 @@ int main(int argc, char **argv) {
             ++argv;
             if (*argv) fq = atof(*argv);
             else return -1;
-            if (fq < -0.5) fq = -0.5;
-            if (fq >  0.5) fq =  0.5;
             if (xlt_cnt < MAX_FQ) {
-                base_fqs[xlt_cnt] = fq;
+                rsfreq[xlt_cnt] = fq;
                 rstype[xlt_cnt] = thd_lms6X;
                 xlt_cnt++;
             }
