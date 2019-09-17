@@ -492,7 +492,7 @@ static int get_SondeID(gpx_t *gpx, int crc, int ofs) {
             load_cached_subframes(gpx);
             if(gpx->option.dmp) {
                 if(gpx->rawfile) fclose(gpx->rawfile);
-                sprintf(buffer, "raw/%s.raw", sondeid_bytes);
+                sprintf(buffer, "raw/RS41-%s.raw", sondeid_bytes);
                 gpx->rawfile = fopen(buffer, "a");
             }
         }

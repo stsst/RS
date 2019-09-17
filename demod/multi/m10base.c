@@ -34,6 +34,7 @@ typedef struct {
     i8_t aut;
     i8_t col;  // colors
     i8_t jsn;  // JSON output (auto_rx)
+    i8_t dmp;
 } option_t;
 
 
@@ -85,6 +86,7 @@ typedef struct {
     int auxlen; // 0 .. 0x76-0x64
     option_t option;
     double nominal_freq;
+    FILE* rawfile;
 } gpx_t;
 
 
@@ -825,44 +827,19 @@ static int print_frame(gpx_t *gpx, int pos, dsp_t *dsp) {
     cs1 = (gpx->frame_bytes[pos_Check+gpx->auxlen] << 8) | gpx->frame_bytes[pos_Check+gpx->auxlen+1];
     cs2 = checkM10(gpx->frame_bytes, pos_Check+gpx->auxlen);
 
-    if (gpx->option.raw) {
-
-        if (gpx->option.col  &&  gpx->frame_bytes[1] != 0x49) {
-            fprintf(stdout, col_FRTXT);
-            for (i = 0; i < FRAME_LEN+gpx->auxlen; i++) {
-                byte = gpx->frame_bytes[i];
-                if ((i >= pos_GPSTOW)   &&  (i < pos_GPSTOW+4))   fprintf(stdout, col_GPSTOW);
-                if ((i >= pos_GPSlat)   &&  (i < pos_GPSlat+4))   fprintf(stdout, col_GPSlat);
-                if ((i >= pos_GPSlon)   &&  (i < pos_GPSlon+4))   fprintf(stdout, col_GPSlon);
-                if ((i >= pos_GPSalt)   &&  (i < pos_GPSalt+4))   fprintf(stdout, col_GPSalt);
-                if ((i >= pos_GPSweek)  &&  (i < pos_GPSweek+2))  fprintf(stdout, col_GPSweek);
-                if ((i >= pos_GPSvE)    &&  (i < pos_GPSvE+6))    fprintf(stdout, col_GPSvel);
-                if ((i >= pos_SN)       &&  (i < pos_SN+5))       fprintf(stdout, col_SN);
-                if ((i >= pos_Check+gpx->auxlen)  &&  (i < pos_Check+gpx->auxlen+2))  fprintf(stdout, col_Check);
-                fprintf(stdout, "%02x", byte);
-                fprintf(stdout, col_FRTXT);
-            }
-            if (gpx->option.vbs) {
-                fprintf(stdout, " # "col_Check"%04x"col_FRTXT, cs2);
-                if (cs1 == cs2) fprintf(stdout, " "col_CSok"[OK]"col_TXT);
-                else            fprintf(stdout, " "col_CSno"[NO]"col_TXT);
-            }
-            fprintf(stdout, ANSI_COLOR_RESET"\n");
+    if (gpx->rawfile) {
+        for (i = 0; i < FRAME_LEN+gpx->auxlen; i++) {
+            byte = gpx->frame_bytes[i];
+            fprintf(gpx->rawfile, "%02x", byte);
         }
-        else {
-            for (i = 0; i < FRAME_LEN+gpx->auxlen; i++) {
-                byte = gpx->frame_bytes[i];
-                fprintf(stdout, "%02x", byte);
-            }
-            if (gpx->option.vbs) {
-                fprintf(stdout, " # %04x", cs2);
-                if (cs1 == cs2) fprintf(stdout, " [OK]"); else fprintf(stdout, " [NO]");
-            }
-            fprintf(stdout, "\n");
+        if (gpx->option.vbs) {
+            fprintf(gpx->rawfile, " # %04x", cs2);
+            if (cs1 == cs2) fprintf(gpx->rawfile, " [OK]"); else fprintf(gpx->rawfile, " [NO]");
         }
+        fprintf(gpx->rawfile, "\n");
 
     }
-    else if (gpx->frame_bytes[1] == 0x49) {
+    if (gpx->frame_bytes[1] == 0x49) {
         if (gpx->option.vbs == 3) {
             for (i = 0; i < FRAME_LEN+gpx->auxlen; i++) {
                 byte = gpx->frame_bytes[i];
@@ -932,6 +909,7 @@ void *thd_m10(void *targs) { // pcm_t *pcm, double xlt_fq
     gpx.option.ptu = 1;
     gpx.option.jsn = tharg->option_jsn;
     gpx.option.col = 0; //option_color;
+    gpx.option.dmp = tharg->option_dmp;
 
     gpx.nominal_freq = tharg->freq;
 

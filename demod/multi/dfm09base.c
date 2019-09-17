@@ -35,6 +35,7 @@ typedef struct {
     i8_t jsn;  // JSON output (auto_rx)
     i8_t dst;  // continuous pcks 0..8
     i8_t dbg;
+    i8_t dmp;
 } option_t;
 
 typedef struct {
@@ -73,6 +74,7 @@ typedef struct {
     option_t option;
     int ptu_out;
     double nominal_freq;
+    FILE* rawfile;
 } gpx_t;
 
 
@@ -438,6 +440,7 @@ static int conf_out(gpx_t *gpx, ui8_t *conf_bits, int ec) {
     ui32_t SN6, SN;
     ui8_t dfm6typ;
     ui8_t sn2_ch, sn_ch;
+    char buffer[32];
 
 
     conf_id = bits2val(conf_bits, 4);
@@ -471,6 +474,11 @@ static int conf_out(gpx_t *gpx, ui8_t *conf_bits, int ec) {
                     gpx->ptu_out = 6;
                     sprintf(gpx->sonde_id, "ID06:%6X", gpx->SN6);
                     //sprintf(json_sonde_id, "DFM06-%6X", gpx->SN6);
+                    if(gpx->option.dmp) {
+                        if (gpx->rawfile) fclose(gpx->rawfile);
+                        sprintf(buffer, "raw/DFM06-%6X.raw", gpx->SN6);
+                        gpx->rawfile = fopen(buffer, "a");
+                    }
                 }
                 else { // reset
                     gpx->sonde_typ = 0;
@@ -500,10 +508,20 @@ static int conf_out(gpx_t *gpx, ui8_t *conf_bits, int ec) {
                         if ( (gpx->sonde_typ & 0xF) == 0xA) {
                             sprintf(gpx->sonde_id, "ID09:%6u", gpx->SN);
                             //sprintf(json_sonde_id, "DFM09-%6u", gpx->SN);
+                            if(gpx->option.dmp) {
+                                if (gpx->rawfile) fclose(gpx->rawfile);
+                                sprintf(buffer, "raw/DFM09-%6u.raw", gpx->SN);
+                                gpx->rawfile = fopen(buffer, "a");
+                            }
                         }
                         else {
                             sprintf(gpx->sonde_id, "ID-%1X:%6u", gpx->sonde_typ & 0xF, gpx->SN);
                             //sprintf(json_sonde_id, "DFMx%1X-%6u", gpx->sonde_typ & 0xF,gpx->SN);
+                            if(gpx->option.dmp) {
+                                if (gpx->rawfile) fclose(gpx->rawfile);
+                                sprintf(buffer, "raw/DFMX%X-%6u.raw", gpx->sonde_typ & 0xF, gpx->SN);
+                                gpx->rawfile = fopen(buffer, "a");
+                            }
                         }
                     }
                     else { // reset
@@ -708,47 +726,47 @@ static int print_frame(gpx_t *gpx, dsp_t *dsp) {
     ret2 = hamming(gpx->option.ecc, hamming_dat2, 13, block_dat2);
     ret = ret0 | ret1 | ret2;
 
-    if (gpx->option.raw == 1) {
+    if (gpx->rawfile) {
 
         for (i = 0; i < 7; i++) {
             nib = bits2val(block_conf+S*i, S);
-            printf("%01X", nib & 0xFF);
+            fprintf(gpx->rawfile, "%01X", nib & 0xFF);
         }
         if (gpx->option.ecc) {
-            if      (ret0 == 0) printf(" [OK] ");
-            else if (ret0  > 0) printf(" [KO] ");
-            else                printf(" [NO] ");
+            if      (ret0 == 0) fprintf(gpx->rawfile, " [OK] ");
+            else if (ret0  > 0) fprintf(gpx->rawfile, " [KO] ");
+            else                fprintf(gpx->rawfile, " [NO] ");
         }
-        printf("  ");
+        fprintf(gpx->rawfile, "  ");
         for (i = 0; i < 13; i++) {
             nib = bits2val(block_dat1+S*i, S);
-            printf("%01X", nib & 0xFF);
+            fprintf(gpx->rawfile, "%01X", nib & 0xFF);
         }
         if (gpx->option.ecc) {
-            if      (ret1 == 0) printf(" [OK] ");
-            else if (ret1  > 0) printf(" [KO] ");
-            else                printf(" [NO] ");
+            if      (ret1 == 0) fprintf(gpx->rawfile, " [OK] ");
+            else if (ret1  > 0) fprintf(gpx->rawfile, " [KO] ");
+            else                fprintf(gpx->rawfile, " [NO] ");
         }
-        printf("  ");
+        fprintf(gpx->rawfile, "  ");
         for (i = 0; i < 13; i++) {
             nib = bits2val(block_dat2+S*i, S);
-            printf("%01X", nib & 0xFF);
+            fprintf(gpx->rawfile, "%01X", nib & 0xFF);
         }
         if (gpx->option.ecc) {
-            if      (ret2 == 0) printf(" [OK] ");
-            else if (ret2  > 0) printf(" [KO] ");
-            else                printf(" [NO] ");
+            if      (ret2 == 0) fprintf(gpx->rawfile, " [OK] ");
+            else if (ret2  > 0) fprintf(gpx->rawfile, " [KO] ");
+            else                fprintf(gpx->rawfile, " [NO] ");
         }
 
         if (gpx->option.ecc && gpx->option.vbs) {
-            if (gpx->option.vbs > 1) printf(" (%1X,%1X,%1X) ", cnt_biterr(ret0), cnt_biterr(ret1), cnt_biterr(ret2));
-            printf(" (%d) ", cnt_biterr(ret0)+cnt_biterr(ret1)+cnt_biterr(ret2));
+            if (gpx->option.vbs > 1) fprintf(gpx->rawfile, " (%1X,%1X,%1X) ", cnt_biterr(ret0), cnt_biterr(ret1), cnt_biterr(ret2));
+            fprintf(gpx->rawfile, " (%d) ", cnt_biterr(ret0)+cnt_biterr(ret1)+cnt_biterr(ret2));
         }
 
-        printf("\n");
+        fprintf(gpx->rawfile, "\n");
 
     }
-    else if (gpx->option.ecc) {
+    if (gpx->option.ecc) {
 
         if (ret0 == 0 || ret0 > 0) {
             conf_out(gpx, block_conf, ret0);
