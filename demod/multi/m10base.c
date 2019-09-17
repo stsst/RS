@@ -80,7 +80,8 @@ typedef struct {
     double vx; double vy; double vD2;
     ui8_t numSV;
     ui8_t utc_ofs;
-    char SN[12];
+    char SN[18];
+    char SN_dxl[10];
     ui8_t frame_bytes[FRAME_LEN+AUX_LEN+4];
     char frame_bits[BITFRAME_LEN+BITAUX_LEN+8];
     int auxlen; // 0 .. 0x76-0x64
@@ -427,20 +428,72 @@ static int get_SN(gpx_t *gpx) {
     int i;
     unsigned byte;
     ui8_t sn_bytes[5];
-
-    for (i = 0; i < 11; i++) gpx->SN[i] = ' '; gpx->SN[11] = '\0';
-
+    
     for (i = 0; i < 5; i++) {
         byte = gpx->frame_bytes[pos_SN + i];
         sn_bytes[i] = byte;
     }
 
-    byte = sn_bytes[2];
-    sprintf(gpx->SN, "%1X%02u", (byte>>4)&0xF, byte&0xF);
-    byte = sn_bytes[3] | (sn_bytes[4]<<8);
-    sprintf(gpx->SN+3, " %1X %1u%04u", sn_bytes[0]&0xF, (byte>>13)&0x7, byte&0x1FFF);
+    // for (i = 0; i < 11; i++) gpx->SN[i] = ' '; gpx->SN[11] = '\0';
 
-    return 0;
+    // byte = sn_bytes[2];
+    // sprintf(gpx->SN, "%1X%02u", (byte>>4)&0xF, byte&0xF);
+    // byte = sn_bytes[3] | (sn_bytes[4]<<8);
+    // sprintf(gpx->SN+3, " %1X %1u%04u", sn_bytes[0]&0xF, (byte>>13)&0x7, byte&0x1FFF);
+    
+    
+    /*
+     * The serial number is in the form M10-A-BCC-D-EEEE
+     * - A is the frame type, T for Trimble, the original GPS used for this modulation
+     * G for Gtop GPS
+     * - B is the year of fabrication (8 = 2018)
+     * - CC is the month of fabrication
+     * - D is the product type, 2 is production type
+     * - EEEE is the RS serial number
+     */
+    
+    char sondetype = '?';
+    switch((gpx->frame_bytes[1] << 8) | gpx->frame_bytes[2])
+    {
+        case 0xAF02: sondetype = 'G'; break; // GTop
+        case 0x9F20: sondetype = 'T'; break; // Trimble
+    }
+    byte = sn_bytes[3] | (sn_bytes[4] << 8);
+    char SN[18];
+    sprintf(SN, "M10-%c-%X%02u-%1X-%1u%04u", sondetype, (sn_bytes[2] >> 4)&0xF, sn_bytes[2] & 0xF, sn_bytes[0]&0xF, (byte >> 13)&0x7, byte & 0x1FFF);
+    SN[17] = 0;
+    
+    if(strcmp(SN, gpx->SN)){
+        if(gpx->option.dmp) {
+            if (gpx->rawfile) fclose(gpx->rawfile);
+            char buffer[64];
+            sprintf(buffer, "raw/%s.raw", SN);
+            gpx->rawfile = fopen(buffer, "a");
+        }
+        strcpy(gpx->SN, SN);
+    
+        // The way used by dxlARPS used for compatibility.
+        ui32_t id;
+
+        id = ((sn_bytes[4] | ((ui32_t) sn_bytes[3] << 8) | ((ui32_t) sn_bytes[2] << 16)) ^ (((ui32_t) sn_bytes[0] >> 4) | ((ui32_t) sn_bytes[1] << 4) | ((ui32_t) sn_bytes[2] << 12)))&0xFFFFFUL;
+        sprintf(gpx->SN_dxl, "ME%06u", id);
+        gpx->SN_dxl[9] = 0;
+
+        // whats wrong with sprintf?
+        // i = 8UL;
+        // gpx->SN_dxl[8U] = 0;
+        // --i;
+        // do {
+            // gpx->SN_dxl[i] = (char) (id % 10UL + 48UL);
+            // id = id / 10UL;
+            // --i;
+        // } while (i != 1UL);
+        // gpx->SN_dxl[i] = 'E';
+        // --i;
+        // gpx->SN_dxl[i] = 'M';
+
+        // return 0;
+    }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -712,7 +765,7 @@ static int print_pos(gpx_t *gpx, int csOK) {
                 //if (gpx->option.vbs == 2) fprintf(stdout, "  "col_GPSvel"(%.1f , %.1f : %.1f)"col_TXT" ", gpx->vx, gpx->vy, gpx->vD2);
                 fprintf(stdout, "  vH: "col_GPSvel"%.1f"col_TXT"  D: "col_GPSvel"%.1f"col_TXT"  vV: "col_GPSvel"%.1f"col_TXT" ", gpx->vH, gpx->vD, gpx->vV);
             }
-            if (gpx->option.vbs >= 2) {
+            if (csOK && gpx->option.vbs >= 2) {
                 get_SN(gpx);
                 fprintf(stdout, "  SN: "col_SN"%s"col_TXT, gpx->SN);
             }
@@ -744,7 +797,7 @@ static int print_pos(gpx_t *gpx, int csOK) {
                 //if (gpx->option.vbs == 2) fprintf(stdout, "  (%.1f , %.1f : %.1f) ", gpx->vx, gpx->vy, gpx->vD2);
                 fprintf(stdout, "  vH: %.1f  D: %.1f  vV: %.1f ", gpx->vH, gpx->vD, gpx->vV);
             }
-            if (gpx->option.vbs >= 2) {
+            if (csOK && gpx->option.vbs >= 2) {
                 get_SN(gpx);
                 fprintf(stdout, "  SN: %s", gpx->SN);
             }
@@ -769,7 +822,6 @@ static int print_pos(gpx_t *gpx, int csOK) {
             // Print out telemetry data as JSON
             if (csOK) {
                 int j;
-                char sn_id[4+12] = "M10-";
                 // UTC = GPS - UTC_OFS  (ab 1.1.2017: UTC_OFS=18sec)
                 int utc_s = gpx->gpssec - gpx->utc_ofs;
                 int utc_week = gpx->week;
@@ -785,21 +837,33 @@ static int print_pos(gpx_t *gpx, int csOK) {
                 utc_min = (utc_s%3600)/60;
                 utc_sek =  utc_s%60 + (gpx->tow_ms % 1000)/1000.0;
 
-                strncpy(sn_id+4, gpx->SN, 12);
-                sn_id[15] = '\0';
-                for (j = 0; sn_id[j]; j++) { if (sn_id[j] == ' ') sn_id[j] = '-'; }
+                struct tm timeinfo;
+                timeinfo.tm_hour = utc_std;
+                timeinfo.tm_min = utc_min;
+                timeinfo.tm_sec = utc_sek;
+                timeinfo.tm_mday = utc_tag;
+                timeinfo.tm_mon = utc_monat - 1;
+                timeinfo.tm_year = utc_jahr - 1900;
+                timeinfo.tm_isdst = 0;
+                
+                // mktime assumes local timezone, we have utc, calculate timezone offset and correct the timestamp
+                // 1970-01-02 00:00:00 - 60*60*24
+                static struct tm tz_ref = { .tm_hour=0, .tm_min=0, .tm_sec=0, .tm_year=70, .tm_mon=0, .tm_mday=2, .tm_isdst=0 };
+                int tzoffset = 60*60*24 - (int)mktime(&tz_ref);
+                
+                time_t frame = mktime(&timeinfo) + tzoffset;
 
-                fprintf(stdout, "{ \"id\": \"%s\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f, \"sats\": %d",
-                               sn_id, utc_jahr, utc_monat, utc_tag, utc_std, utc_min, utc_sek, gpx->lat, gpx->lon, gpx->alt, gpx->vH, gpx->vD, gpx->vV, gpx->numSV);
+                fprintf(stdout, "{ \"id\": \"%s\", \"frame\": %u, \"dxlid\": \"%s\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f, \"sats\": %d",
+                               gpx->SN, frame, gpx->SN_dxl, utc_jahr, utc_monat, utc_tag, utc_std, utc_min, utc_sek, gpx->lat, gpx->lon, gpx->alt, gpx->vH, gpx->vD, gpx->vV, gpx->numSV);
                 if (gpx->option.ptu) {
                     float t = get_Temp(gpx, 0);
                     if (t > -273.0) fprintf(stdout, ", \"temp\": %.1f", t);
                 }
- 
+                
                 if (gpx->nominal_freq != 0.0) {
                     fprintf(stdout, ", \"freq\": %.6f",  gpx->nominal_freq );
                 }
-
+                
                 fprintf(stdout, ", \"type\": \"M10\" }\n");
                 fprintf(stdout, "\n");
             }
