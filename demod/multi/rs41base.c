@@ -105,6 +105,7 @@ typedef struct {
     option_t option;
     RS_t RS;
     FILE* rawfile;
+    double nominal_freq;
 } gpx_t;
 
 
@@ -1469,6 +1470,13 @@ static int print_position(gpx_t *gpx, int ec) {
                             fprintf(stdout, ", \"pressure\": %.2f",  gpx->P );
                         }
 
+                        if (gpx->freq) {
+                            fprintf(stdout, ", \"freq\": %.6f",  gpx->freq/1000.0 );
+                        }
+                        else if (gpx->nominal_freq != 0.0) {
+                            fprintf(stdout, ", \"freq\": %.6f",  gpx->nominal_freq );
+                        }
+
                         if (gpx->aux) { // <=> gpx->xdata[0]!='\0'
                             fprintf(stdout, ", \"aux\": \"%s\"",  gpx->xdata );
                         }
@@ -1656,6 +1664,8 @@ void *thd_rs41(void *targs) { // pcm_t *pcm, double xlt_fq
     gpx.option.aut = 1;
     gpx.option.jsn = tharg->option_jsn;
     gpx.option.dmp = tharg->option_dmp;
+
+    gpx.nominal_freq = tharg->freq;
 
     gpx.option.ecc = 1;
 

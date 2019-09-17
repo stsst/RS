@@ -72,6 +72,7 @@ typedef struct {
     pcksts_t pck[9];
     option_t option;
     int ptu_out;
+    double nominal_freq;
 } gpx_t;
 
 
@@ -664,7 +665,11 @@ static int print_gpx(gpx_t *gpx) {
             }
             
             if (gpx->status[0] != 0.0) printf(", \"batt\": %f", gpx->status[0]);
-            
+
+            if (gpx->nominal_freq != 0.0) {
+                fprintf(stdout, ", \"freq\": %.6f",  gpx->nominal_freq );
+            }
+
             if (sonde_subtype[0]) printf(", \"subtype\": \"%s\"", sonde_subtype);
             
             printf(", \"type\": \"DFM\" }\n");
@@ -837,7 +842,9 @@ void *thd_dfm09(void *targs) {
     gpx.option.aut = 1;
     gpx.option.dst = 0;
     gpx.option.jsn = tharg->option_jsn;
+    gpx.option.dmp = tharg->option_dmp;
 
+    gpx.nominal_freq = tharg->freq;
 
     headerlen = strlen(dfm_rawheader);
 

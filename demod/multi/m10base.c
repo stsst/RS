@@ -84,6 +84,7 @@ typedef struct {
     char frame_bits[BITFRAME_LEN+BITAUX_LEN+8];
     int auxlen; // 0 .. 0x76-0x64
     option_t option;
+    double nominal_freq;
 } gpx_t;
 
 
@@ -792,6 +793,11 @@ static int print_pos(gpx_t *gpx, int csOK) {
                     float t = get_Temp(gpx, 0);
                     if (t > -273.0) fprintf(stdout, ", \"temp\": %.1f", t);
                 }
+ 
+                if (gpx->nominal_freq != 0.0) {
+                    fprintf(stdout, ", \"freq\": %.6f",  gpx->nominal_freq );
+                }
+
                 fprintf(stdout, ", \"type\": \"M10\" }\n");
                 fprintf(stdout, "\n");
             }
@@ -927,6 +933,7 @@ void *thd_m10(void *targs) { // pcm_t *pcm, double xlt_fq
     gpx.option.jsn = tharg->option_jsn;
     gpx.option.col = 0; //option_color;
 
+    gpx.nominal_freq = tharg->freq;
 
     // init gpx
 

@@ -85,7 +85,8 @@ int main(int argc, char **argv) {
     int wavloaded = 0;
     int k;
     int xlt_cnt = 0;
-    double base_fqs[MAX_FQ];
+    double rsfreq[MAX_FQ] = {0};
+    double center_frequency = 0.0;
     void *rstype[MAX_FQ];
     int option_pcmraw = 0,
         option_jsn = 0,
@@ -99,8 +100,6 @@ int main(int argc, char **argv) {
 
     pcm_t pcm = {0};
 
-    for (k = 0; k < MAX_FQ; k++) base_fqs[k] = 0.0;
-
     ++argv;
     while ((*argv) && (!wavloaded)) {
         if (strcmp(*argv, "--rs41") == 0) {
@@ -108,10 +107,8 @@ int main(int argc, char **argv) {
             ++argv;
             if (*argv) fq = atof(*argv);
             else return -1;
-            if (fq < -0.5) fq = -0.5;
-            if (fq >  0.5) fq =  0.5;
             if (xlt_cnt < MAX_FQ) {
-                base_fqs[xlt_cnt] = fq;
+                rsfreq[xlt_cnt] = fq;
                 rstype[xlt_cnt] = thd_rs41;
                 xlt_cnt++;
             }
@@ -121,10 +118,8 @@ int main(int argc, char **argv) {
             ++argv;
             if (*argv) fq = atof(*argv);
             else return -1;
-            if (fq < -0.5) fq = -0.5;
-            if (fq >  0.5) fq =  0.5;
             if (xlt_cnt < MAX_FQ) {
-                base_fqs[xlt_cnt] = fq;
+                rsfreq[xlt_cnt] = fq;
                 rstype[xlt_cnt] = thd_dfm09;
                 xlt_cnt++;
             }
@@ -134,10 +129,8 @@ int main(int argc, char **argv) {
             ++argv;
             if (*argv) fq = atof(*argv);
             else return -1;
-            if (fq < -0.5) fq = -0.5;
-            if (fq >  0.5) fq =  0.5;
             if (xlt_cnt < MAX_FQ) {
-                base_fqs[xlt_cnt] = fq;
+                rsfreq[xlt_cnt] = fq;
                 rstype[xlt_cnt] = thd_m10;
                 xlt_cnt++;
             }
@@ -160,6 +153,10 @@ int main(int argc, char **argv) {
         }
         else if   (strcmp(*argv, "--dump") == 0) {
             option_dmp = 1;
+        }
+        else if   (strcmp(*argv, "--cf") == 0) {
+            ++argv;
+            if (*argv) center_frequency = atof(*argv);
         }
         else if (strcmp(*argv, "-") == 0) {
             int sample_rate = 0, bits_sample = 0, channels = 0;
@@ -212,6 +209,20 @@ int main(int argc, char **argv) {
     thargs_t tharg[xlt_cnt];
 
     for (k = 0; k < xlt_cnt; k++) {
+        double base_fq;
+        if (center_frequency != 0.0) {
+            base_fq = (rsfreq[k] - center_frequency) / (pcm.sr_base / 1000000.0);
+            tharg[k].freq = rsfreq[k];
+        }
+        else {
+            base_fq = rsfreq[k];
+            tharg[k].freq = 0;
+        }
+        if(base_fq < -0.5 || base_fq > 0.5) {
+            fprintf(stderr, "warning: sonde %d frequency is too far from the center frequency (%f)\n", k+1, base_fq);
+            base_fq = base_fq < 0 ? -0.5 : 0.5;
+            continue;
+        }
         tharg[k].thd.tn = k;
         tharg[k].thd.tn_bit = (1<<k);
         tharg[k].thd.mutex = &mutex;
@@ -219,7 +230,7 @@ int main(int argc, char **argv) {
         //tharg[k].thd.lock = &lock;
         tharg[k].thd.blk = block_decMB;
         tharg[k].thd.max_fq = xlt_cnt;
-        tharg[k].thd.xlt_fq = -base_fqs[k]; // S(t)*exp(-f*2pi*I*t): fq baseband -> IF (rotate from and decimate)
+        tharg[k].thd.xlt_fq = -base_fq; // S(t)*exp(-f*2pi*I*t): fq baseband -> IF (rotate from and decimate)
 
         tharg[k].pcm = pcm;
 
