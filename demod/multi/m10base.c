@@ -866,11 +866,15 @@ static int print_pos(gpx_t *gpx, int csOK) {
                     float t = get_Temp(gpx, 0);
                     if (t > -273.0) fprintf(stdout, ", \"temp\": %.1f", t);
                 }
-                
+
                 if (gpx->nominal_freq != 0.0) {
                     fprintf(stdout, ", \"freq\": %.6f",  gpx->nominal_freq );
                 }
-                
+
+                double batt = (gpx->frame_bytes[69] | (gpx->frame_bytes[70] << 8)) / 1000. * 6.62;
+                if (batt > 0.0 && batt < 20.0) {
+                    fprintf(stdout, ", \"batt\": %.03f", batt);
+                }
                 fprintf(stdout, ", \"type\": \"M10\" }\n");
                 fprintf(stdout, "\n");
             }
