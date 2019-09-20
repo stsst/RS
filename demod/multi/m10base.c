@@ -822,28 +822,35 @@ static int print_pos(gpx_t *gpx, int csOK) {
             // Print out telemetry data as JSON
             if (csOK) {
                 int j;
-                // UTC = GPS - UTC_OFS  (ab 1.1.2017: UTC_OFS=18sec)
-                int utc_s = gpx->gpssec - gpx->utc_ofs;
-                int utc_week = gpx->week;
-                int utc_jahr; int utc_monat; int utc_tag;
-                int utc_std; int utc_min; float utc_sek;
-                if (utc_s < 0) {
-                    utc_week -= 1;
-                    utc_s += 604800; // 604800sec = 1week
-                }
-                Gps2Date(utc_week, utc_s, &utc_jahr, &utc_monat, &utc_tag);
-                utc_s  %= (24*3600); // 86400sec = 1day
-                utc_std =  utc_s/3600;
-                utc_min = (utc_s%3600)/60;
-                utc_sek =  utc_s%60 + (gpx->tow_ms % 1000)/1000.0;
+                // UTC = GPS - time_OFS  (ab 1.1.2017: time_OFS=18sec)
+                // do not correct for gps utc offset, other decoders dont seem to do it either
+                //int time_s = gpx->gpssec - gpx->utc_ofs;
+                int time_s = gpx->gpssec;
+                int time_week = gpx->week;
+                // if (time_s < 0) {
+                    // time_week -= 1;
+                    // time_s += 604800; // 604800sec = 1week
+                // }
+                // else if (time_s >= 604800) {
+                    // time_week += 1;
+                    // time_s -= 604800;
+                // }
+                int time_year; int time_month; int time_day;
+                int time_hour; int time_min; float time_sec;
+
+                Gps2Date(time_week, time_s, &time_year, &time_month, &time_day);
+                time_s  %= (24*3600); // 86400sec = 1day
+                time_hour =  time_s/3600;
+                time_min = (time_s%3600)/60;
+                time_sec =  time_s%60 + (gpx->tow_ms % 1000)/1000.0;
 
                 struct tm timeinfo;
-                timeinfo.tm_hour = utc_std;
-                timeinfo.tm_min = utc_min;
-                timeinfo.tm_sec = utc_sek;
-                timeinfo.tm_mday = utc_tag;
-                timeinfo.tm_mon = utc_monat - 1;
-                timeinfo.tm_year = utc_jahr - 1900;
+                timeinfo.tm_hour = time_hour;
+                timeinfo.tm_min = time_min;
+                timeinfo.tm_sec = time_sec;
+                timeinfo.tm_mday = time_day;
+                timeinfo.tm_mon = time_month - 1;
+                timeinfo.tm_year = time_year - 1900;
                 timeinfo.tm_isdst = 0;
                 
                 // mktime assumes local timezone, we have utc, calculate timezone offset and correct the timestamp
@@ -854,7 +861,7 @@ static int print_pos(gpx_t *gpx, int csOK) {
                 time_t frame = mktime(&timeinfo) + tzoffset;
 
                 fprintf(stdout, "{ \"id\": \"%s\", \"frame\": %u, \"dxlid\": \"%s\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f, \"sats\": %d",
-                               gpx->SN, frame, gpx->SN_dxl, utc_jahr, utc_monat, utc_tag, utc_std, utc_min, utc_sek, gpx->lat, gpx->lon, gpx->alt, gpx->vH, gpx->vD, gpx->vV, gpx->numSV);
+                               gpx->SN, frame, gpx->SN_dxl, time_year, time_month, time_day, time_hour, time_min, time_sec, gpx->lat, gpx->lon, gpx->alt, gpx->vH, gpx->vD, gpx->vV, gpx->numSV);
                 if (gpx->option.ptu) {
                     float t = get_Temp(gpx, 0);
                     if (t > -273.0) fprintf(stdout, ", \"temp\": %.1f", t);
