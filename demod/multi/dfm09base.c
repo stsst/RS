@@ -684,6 +684,8 @@ static int print_gpx(gpx_t *gpx) {
             
             if (gpx->status[0] != 0.0) printf(", \"batt\": %f", gpx->status[0]);
 
+            if (gpx->status[1] != 0.0) printf(", \"inttemp\": %.1f", gpx->status[1]-273.15);
+
             if (gpx->nominal_freq != 0.0) {
                 fprintf(stdout, ", \"freq\": %.6f",  gpx->nominal_freq );
             }

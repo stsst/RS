@@ -875,6 +875,12 @@ static int print_pos(gpx_t *gpx, int csOK) {
                 if (batt > 0.0 && batt < 20.0) {
                     fprintf(stdout, ", \"batt\": %.03f", batt);
                 }
+
+                double int_temp = ((gpx->frame_bytes[0x48] | (gpx->frame_bytes[0x49] << 8)) / 4095. * 1.5 - .986)/.00355;
+                if (int_temp > -150. && int_temp < 500.) {
+                    fprintf(stdout, ", \"inttemp\": %.1f", int_temp);
+                }
+
                 fprintf(stdout, ", \"type\": \"M10\" }\n");
                 fprintf(stdout, "\n");
             }
