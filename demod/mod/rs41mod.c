@@ -1532,10 +1532,12 @@ static int find_binhead(FILE *fp, hdb_t *hdb, float *score) {
 int main(int argc, char *argv[]) {
 
     //int option_inv = 0;    // invertiert Signal
+    int option_min = 0;
     int option_iq = 0;
     int option_lp = 0;
-    int option_ofs = 0;
+    int option_dc = 0;
     int option_bin = 0;
+    int option_pcmraw = 0;
     int wavloaded = 0;
     int sel_wavch = 0;     // audio channel: left
     int rawhex = 0, xorhex = 0;
@@ -1608,13 +1610,8 @@ int main(int argc, char *argv[]) {
         else if   (strcmp(*argv, "--sat") == 0) { gpx.option.sat = 1; }
         else if   (strcmp(*argv, "--ptu") == 0) { gpx.option.ptu = 1; }
         else if   (strcmp(*argv, "--silent") == 0) { gpx.option.slt = 1; }
-        else if   (strcmp(*argv, "--json") == 0) {
-            gpx.option.jsn = 1;
-            gpx.option.ecc = 2;
-            gpx.option.crc = 1;
-        }
         else if   (strcmp(*argv, "--ch2") == 0) { sel_wavch = 1; }  // right channel (default: 0=left)
-        else if ( (strcmp(*argv, "--auto") == 0) ) { gpx.option.aut = 1; }
+        else if   (strcmp(*argv, "--auto") == 0) { gpx.option.aut = 1; }
         else if   (strcmp(*argv, "--bin") == 0) { option_bin = 1; }   // bit/byte binary input
         else if   (strcmp(*argv, "--ths") == 0) {
             ++argv;
@@ -1646,13 +1643,37 @@ int main(int argc, char *argv[]) {
             option_iq = 5;
         }
         else if   (strcmp(*argv, "--lp") == 0) { option_lp = 1; }  // IQ lowpass
-        else if   (strcmp(*argv, "--ofs") == 0) { option_ofs = 1; }
+        else if   (strcmp(*argv, "--dc") == 0) { option_dc = 1; }
+        else if   (strcmp(*argv, "--min") == 0) {
+            option_min = 1;
+        }
+        else if   (strcmp(*argv, "--json") == 0) {
+            gpx.option.jsn = 1;
+            gpx.option.ecc = 2;
+            gpx.option.crc = 1;
+        }
         else if   (strcmp(*argv, "--rawhex") == 0) { rawhex = 2; }  // raw hex input
         else if   (strcmp(*argv, "--xorhex") == 0) { rawhex = 2; xorhex = 1; }  // raw xor input
+        else if (strcmp(*argv, "-") == 0) {
+            int sample_rate = 0, bits_sample = 0, channels = 0;
+            ++argv;
+            if (*argv) sample_rate = atoi(*argv); else return -1;
+            ++argv;
+            if (*argv) bits_sample = atoi(*argv); else return -1;
+            channels = 2;
+            if (sample_rate < 1 || (bits_sample != 8 && bits_sample != 16 && bits_sample != 32)) {
+                fprintf(stderr, "- <sr> <bs>\n");
+                return -1;
+            }
+            pcm.sr  = sample_rate;
+            pcm.bps = bits_sample;
+            pcm.nch = channels;
+            option_pcmraw = 1;
+        }
         else {
             fp = fopen(*argv, "rb");
             if (fp == NULL) {
-                fprintf(stderr, "%s konnte nicht geoeffnet werden\n", *argv);
+                fprintf(stderr, "error: open %s\n", *argv);
                 return -1;
             }
             wavloaded = 1;
@@ -1676,14 +1697,21 @@ int main(int argc, char *argv[]) {
 
         if (!option_bin) {
 
+            if (option_iq == 0 && option_pcmraw) {
+                fclose(fp);
+                fprintf(stderr, "error: raw data not IQ\n");
+                return -1;
+            }
             if (option_iq) sel_wavch = 0;
 
             pcm.sel_ch = sel_wavch;
-            k = read_wav_header(&pcm, fp);
-            if ( k < 0 ) {
-                fclose(fp);
-                fprintf(stderr, "error: wav header\n");
-                return -1;
+            if (option_pcmraw == 0) {
+                k = read_wav_header(&pcm, fp);
+                if ( k < 0 ) {
+                    fclose(fp);
+                    fprintf(stderr, "error: wav header\n");
+                    return -1;
+                }
             }
 
             // rs41: BT=0.5, h=0.8,1.0 ?
@@ -1705,9 +1733,12 @@ int main(int argc, char *argv[]) {
             dsp.hdrlen = strlen(rs41_header);
             dsp.BT = 0.5; // bw/time (ISI) // 0.3..0.5
             dsp.h = 0.6; //0.7;  // 0.7..0.8? modulation index abzgl. BT
-            dsp.lpIQ_bw = 8e3;
             dsp.opt_iq = option_iq;
             dsp.opt_lp = option_lp;
+            dsp.lpIQ_bw = 8e3; // IF lowpass bandwidth
+            dsp.lpFM_bw = 6e3; // FM audio lowpass
+            dsp.opt_dc = option_dc;
+            dsp.opt_IFmin = option_min;
 
             if ( dsp.sps < 8 ) {
                 fprintf(stderr, "note: sample rate low (%.1f sps)\n", dsp.sps);
@@ -1741,8 +1772,8 @@ int main(int argc, char *argv[]) {
             if (option_bin) {
                 header_found = find_binhead(fp, &hdb, &_mv);
             }
-            else {
-                header_found = find_header(&dsp, thres, 3, bitofs, 0);
+            else {                                                              // FM-audio:
+                header_found = find_header(&dsp, thres, 3, bitofs, dsp.opt_dc); // optional 2nd pass: dc=0
                 _mv = dsp.mv;
             }
             if (header_found == EOF) break;

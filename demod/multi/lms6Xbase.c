@@ -468,7 +468,7 @@ static int get_GPStime(gpx_t *gpx, int crc_err) {
         gpstow_start = gpstime; // time elapsed since start-up?
         if (gpx->week > 0 && gpstime/1000.0 < time_elapsed_sec) gpx->week += 1;
     }
-    gpx->gpstow = gpstime;
+    gpx->gpstow = gpstime; // tow/ms
 
     ms = gpstime % 1000;
     gpstime /= 1000;
@@ -508,6 +508,7 @@ static int get_GPStime_X(gpx_t *gpx) {
     }
 
     gpx->gpstowX = *f64;
+    gpx->gpstow = (ui32_t)(gpx->gpstowX*1e3); // tow/ms
     tow_u4 = (ui32_t)gpx->gpstowX;
     gpstime = tow_u4;
     gpx->gpssec = tow_u4;
@@ -1028,9 +1029,11 @@ void *thd_lms6X(void *targs) { // pcm_t *pcm, double xlt_fq
     dsp.hdrlen = strlen(rawheader);
     dsp.BT = 1.2; // bw/time (ISI) // 1.0..2.0  // BT(lmsX) < BT(lms6) ? -> init_buffers()
     dsp.h = 0.9;  // 0.95 modulation index
-    dsp.lpIQ_bw = 8e3;
     dsp.opt_iq = option_iq;
     dsp.opt_lp = 1;
+    dsp.lpIQ_bw = 8e3; // IF lowpass bandwidth
+    dsp.lpFM_bw = 6e3; // FM audio lowpass
+    dsp.opt_dc = tharg->option_dc;
 
     if ( dsp.sps < 8 ) {
         fprintf(stderr, "note: sample rate low (%.1f sps)\n", dsp.sps);
@@ -1079,8 +1082,7 @@ void *thd_lms6X(void *targs) { // pcm_t *pcm, double xlt_fq
     bitQ = 0;
     while ( 1 && bitQ != EOF )
     {
-
-        header_found = find_header(&dsp, thres, 3, bitofs, option_dc);
+        header_found = find_header(&dsp, thres, 3, bitofs, dsp.opt_dc);
         _mv = dsp.mv;
 
         if (header_found == EOF) break;

@@ -38,7 +38,8 @@ void *thd_m10(void *);
 void *thd_lms6X(void *);
 
 
-#define IF_SAMPLE_RATE  48000
+#define IF_SAMPLE_RATE      48000
+#define IF_SAMPLE_RATE_MIN  32000
 
 static int pcm_dec_init(pcm_t *p) {
 
@@ -49,6 +50,7 @@ static int pcm_dec_init(pcm_t *p) {
     float tbw;  // dec_lowpass: transition_bandwidth/Hz
     int taps;   // dec_lowpass: taps
 
+    if (p->opt_IFmin) IF_sr = IF_SAMPLE_RATE_MIN;
     if (IF_sr > sr_base) IF_sr = sr_base;
     if (IF_sr < sr_base) {
         while (sr_base % IF_sr) IF_sr += 1;
@@ -56,7 +58,11 @@ static int pcm_dec_init(pcm_t *p) {
     }
 
     f_lp = (IF_sr+20e3)/(4.0*sr_base);
-    tbw  = (IF_sr-20e3)/*/2.0*/; if (tbw < 0) tbw = 8e3;
+    tbw  = (IF_sr-20e3)/*/2.0*/;
+    if (p->opt_IFmin) {
+        tbw = (IF_sr-12e3);
+    }
+    if (tbw < 0) tbw = 10e3;
     taps = sr_base*4.0/tbw; if (taps%2==0) taps++;
 
     taps = decimate_init(f_lp, taps);
@@ -67,6 +73,7 @@ static int pcm_dec_init(pcm_t *p) {
     p->sr = IF_sr; // sr_base/decM
     p->decM = decM;
 
+    iq_dc_init(p);
 
     fprintf(stderr, "IF: %d\n", IF_sr);
     fprintf(stderr, "dec: %d\n", decM);
@@ -90,6 +97,8 @@ int main(int argc, char **argv) {
     void *rstype[MAX_FQ];
     int option_pcmraw = 0,
         option_jsn = 0,
+        option_dc  = 0,
+        option_min = 0,
         option_dmp = 0;
 
 #ifdef CYGWIN
@@ -149,6 +158,13 @@ int main(int argc, char **argv) {
         else if   (strcmp(*argv, "--json") == 0) {
             option_jsn = 1;
         }
+        else if   (strcmp(*argv, "--dc") == 0) {
+            option_dc = 1;
+        }
+        else if   (strcmp(*argv, "--min") == 0) {
+            option_min = 1;
+        }
+
         else if   (strcmp(*argv, "--dump") == 0) {
             option_dmp = 1;
         }
@@ -198,6 +214,7 @@ int main(int argc, char **argv) {
         return -50;
     }
 
+    pcm.opt_IFmin = option_min;
     pcm_dec_init( &pcm );
 
 
@@ -233,6 +250,8 @@ int main(int argc, char **argv) {
         tharg[k].pcm = pcm;
 
         tharg[k].option_jsn = option_jsn;
+        tharg[k].option_dc  = option_dc;
+
         tharg[k].option_dmp = option_dmp;
 
         rbf1 |= tharg[k].thd.tn_bit;
