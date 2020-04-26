@@ -453,15 +453,9 @@ static int get_SN(gpx_t *gpx) {
      * - EEEE is the RS serial number
      */
     
-    char sondetype = '?';
-    switch((gpx->frame_bytes[1] << 8) | gpx->frame_bytes[2])
-    {
-        case 0xAF02: sondetype = 'G'; break; // GTop
-        case 0x9F20: sondetype = 'T'; break; // Trimble
-    }
     byte = sn_bytes[3] | (sn_bytes[4] << 8);
     char SN[18];
-    sprintf(SN, "M10-%c-%X%02u-%1X-%1u%04u", sondetype, (sn_bytes[2] >> 4)&0xF, sn_bytes[2] & 0xF, sn_bytes[0]&0xF, (byte >> 13)&0x7, byte & 0x1FFF);
+    sprintf(SN, "M10-%X%02u-%1X-%1u%04u", (sn_bytes[2] >> 4)&0xF, sn_bytes[2] & 0xF, sn_bytes[0]&0xF, (byte >> 13)&0x7, byte & 0x1FFF);
     SN[17] = 0;
     
     if(strcmp(SN, gpx->SN)){
@@ -823,7 +817,6 @@ static int print_pos(gpx_t *gpx, int csOK) {
             // Print out telemetry data as JSON
             if (csOK) {
                 int j;
-                char sn_id[4+12] = "M10-";
                 ui8_t aprs_id[4];
                 double sec_gps0 = (double)gpx->week*SECONDS_IN_WEEK + gpx->tow_ms/1e3;
                 // UTC = GPS - UTC_OFS  (ab 1.1.2017: UTC_OFS=18sec)
@@ -841,14 +834,10 @@ static int print_pos(gpx_t *gpx, int csOK) {
                 utc_min = (utc_s%3600)/60;
                 utc_sek =  utc_s%60 + (gpx->tow_ms % 1000)/1000.0;
 
-                strncpy(sn_id+4, gpx->SN, 12);
-                sn_id[15] = '\0';
-                for (j = 0; sn_id[j]; j++) { if (sn_id[j] == ' ') sn_id[j] = '-'; }
-
                 fprintf(stdout, "{ ");
                 fprintf(stdout, "\"frame\": %lu ,", (unsigned long)(sec_gps0+0.5));
                 fprintf(stdout, "\"id\": \"%s\", \"datetime\": \"%04d-%02d-%02dT%02d:%02d:%06.3fZ\", \"lat\": %.5f, \"lon\": %.5f, \"alt\": %.5f, \"vel_h\": %.5f, \"heading\": %.5f, \"vel_v\": %.5f, \"sats\": %d",
-                               sn_id, utc_jahr, utc_monat, utc_tag, utc_std, utc_min, utc_sek, gpx->lat, gpx->lon, gpx->alt, gpx->vH, gpx->vD, gpx->vV, gpx->numSV);
+                               gpx->SN, utc_jahr, utc_monat, utc_tag, utc_std, utc_min, utc_sek, gpx->lat, gpx->lon, gpx->alt, gpx->vH, gpx->vD, gpx->vV, gpx->numSV);
                 // APRS id, 9 characters
                 aprs_id[0] = gpx->frame_bytes[pos_SN+2];
                 aprs_id[1] = gpx->frame_bytes[pos_SN] & 0xF;
